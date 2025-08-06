@@ -9,3 +9,12 @@ __pycache__/
 # IDE settings
 .vscode/
 .idea/
+
+# --- SECRET AND BIG FILES ---
+# Secret files containing passwords
+user-data.yaml
+seed.img
+
+# Large virtual disk and source images
+ubuntu_vm_disk.qcow2
+jammy-server-cloudimg-arm64.img
