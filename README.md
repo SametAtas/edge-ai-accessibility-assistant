@@ -1,36 +1,37 @@
-# Edge-AI Accessibility Assistant - Developer Guide and Codebase
+```markdown
+# Edge-AI Accessibility Assistant: Developer Guide
 
-**Last Updated:** 2025-08-06
+**Last Updated: 2025-08-07**
 
-## 1. Project Vision and Purpose
+## 1. Project Vision & Purpose
 
-This project is an **Edge-AI** assistant designed to help visually impaired individuals interact more independently with their physical environment. The system utilizes a standard computer's camera and microphone to perform all AI analysis locally within a virtual ARM environment, ensuring privacy and security while maintaining low-latency response times. The architecture demonstrates practical implementation of edge computing principles and AI model optimization in resource-constrained environments.
+This project is an **Edge-AI** assistant designed to help visually impaired individuals interact more independently with their physical environment. The system utilizes a standard computer's camera to perform all AI analysis locally within a virtualized ARM environment, ensuring user privacy and low-latency responses. The architecture serves as a practical implementation of edge computing, system programming, and AI model optimization.
 
 ## 2. Core Architecture
 
-The project consists of two main interacting components:
+The system consists of two primary components operating in tandem:
 
-* **Host (Main Machine - Windows with WSL Ubuntu):** This is your primary computer where project files are stored. It is responsible for launching the virtual machine and interfacing with physical hardware like the webcam.
-* **Guest (Virtual Machine - QEMU with Ubuntu Server ARM64):** This is an isolated virtual computer running Ubuntu Server on an ARM64 architecture. It performs all AI computations, processing data received from the Host machine.
+*   **Host (Windows + WSL2):** The primary development machine. It stores the project files, launches the virtual environment, and provides the physical webcam interface.
+*   **Guest (QEMU + Ubuntu Server ARM64):** An isolated, virtualized ARM64 environment. It performs all intensive AI computations, processing the video stream received from the host.
 
 ## 3. Architecture Benefits and Design Rationale
 
 The virtualized architecture provides several key advantages:
 
-* **Privacy and Data Security:** All AI processing occurs locally without requiring external cloud services, ensuring sensitive visual data never leaves the user's device.
-* **Reduced Latency:** Local processing eliminates network delays associated with cloud-based AI services, providing immediate feedback to users.
-* **Offline Capability:** The system functions independently of internet connectivity, making it reliable in various environments.
-* **Resource Isolation:** The virtual machine creates a controlled environment that simulates resource-constrained edge devices, allowing for realistic testing and optimization.
-* **Scalability and Portability:** The containerized approach enables easy deployment across different hardware platforms and facilitates testing on various ARM-based systems.
-* **Development Flexibility:** Virtualization enables rapid prototyping and testing without requiring physical embedded hardware during development phases.
+*   **Privacy and Data Security:** All AI processing occurs locally without requiring external cloud services, ensuring sensitive visual data never leaves the user's device.
+*   **Reduced Latency:** Local processing eliminates network delays associated with cloud-based AI services, providing immediate feedback to users.
+*   **Offline Capability:** The system functions independently of internet connectivity, making it reliable in various environments.
+*   **Resource Isolation:** The virtual machine creates a controlled environment that simulates resource-constrained edge devices, allowing for realistic testing and optimization.
+*   **Scalability and Portability:** The containerized approach enables easy deployment across different hardware platforms and facilitates testing on various ARM-based systems.
+*   **Development Flexibility:** Virtualization enables rapid prototyping and testing without requiring physical embedded hardware during development phases.
 
-## 4. Crucial Commands and Daily Workflow
+## 4. Daily Workflow & Essential Commands
 
-This section outlines the essential commands for your daily project routine.
+Follow these steps for a typical development session.
 
-### 4.1. Starting the Virtual Machine (Powering On - Once Per Session)
+### 4.1. Start the Virtual Machine (Once per session)
 
-This command must be run in your **Host machine's WSL (Ubuntu) terminal**, from the project's root directory. This terminal window **must remain open** as long as you are working on the project.
+From your project's root directory in a **WSL terminal**, execute the following. Keep this terminal open.
 
 ```bash
 qemu-system-aarch64 \
@@ -46,138 +47,63 @@ qemu-system-aarch64 \
   -nographic
 ```
 
-### 4.2. Attaching the Webcam to WSL (Once Per Session)
+### 4.2. Attach the Webcam to WSL (Once per session)
 
-This step makes your physical webcam connected to Windows available to your WSL Ubuntu environment.
+1.  Open **Windows PowerShell as Administrator**.
+2.  Find your webcam's **BUSID** (e.g., `2-5`):
+    ```powershell
+    usbipd list
+    ```
+3.  Bind and attach the device to WSL:
+    ```powershell
+    # Use the BUSID you identified above
+    usbipd bind --busid <BUSID>
+    usbipd attach --wsl --busid <BUSID>
+    ```
 
-1. **Open Windows PowerShell as an Administrator.**
-2. List your USB devices and identify the **BUSID** of your webcam (e.g., `2-5`):
-   ```powershell
-   usbipd list
-   ```
-3. **Bind** the webcam to make it sharable:
-   ```powershell
-   # Replace <BUSID> with your webcam's BUSID (e.g., 2-5)
-   .\usbipd bind --busid <BUSID>
-   ```
-4. **Attach** the webcam to your WSL instance:
-   ```powershell
-   .\usbipd attach --wsl --busid <BUSID>
-   ```
+### 4.3. Connect to the Virtual Machine via SSH
 
-### 4.3. Connecting to the Virtual Machine (SSH)
-
-After the VM is running and the webcam is attached, open a **NEW WSL (Ubuntu) terminal** and connect to the VM:
+Open a **new WSL terminal** and connect to the running guest VM.
 
 ```bash
 ssh ubuntu@localhost -p 2222
 ```
+*(Password is the one set in your `user-data.yaml` file.)*
 
-* **Password:** Use the secure password you set in the `user-data.yaml` file.
-* **First-time Connection Error (`REMOTE HOST IDENTIFICATION HAS CHANGED!`)**: If you encounter this, it's normal. Run the command suggested in the error message (e.g., `ssh-keygen -f '/home/username/.ssh/known_hosts' -R '[localhost]:2222'`) to clear the old host key, then try connecting again.
+### 4.4. Run the AI Server
 
-### 4.4. Safely Shutting Down the Virtual Machine (Ending Your Session)
+Inside the **SSH-connected terminal**, navigate to the projects directory, activate the environment, and start the AI server.
 
-When you are done working, run this command inside the **SSH-connected terminal (`ubuntu@ubuntu:~$`)**:
+```bash
+cd ~/projects
+source ai_assistant_env/bin/activate
+python3 ai_server.py
+```
+*(The server will print `Server is listening...` and wait for connections.)*
+
+### 4.5. Run the Camera Client
+
+Open a **third WSL terminal** on your host machine, navigate to the project's root directory, and start the camera client.
+
+```bash
+# Make sure you are in the project's root directory
+python3 camera_client.py
+```
+*(You should now see classification results printed in this terminal.)*
+
+### 4.6. Safely Shutdown the VM
+
+When finished, run this command **inside the SSH-connected terminal**:
 
 ```bash
 sudo shutdown now
 ```
 
-## 5. System Setup (Host & Guest - One-Time Installation Steps)
+## 5. Code & Environment
 
-These steps were completed during the initial project setup and generally do not need to be repeated. They are included here for reference in case a complete re-setup is needed.
+### 5.1. AI Server (`ai_server.py` on Guest)
 
-### 5.1. Host Machine (WSL) Initial Setup
-
-```bash
-# In your Ubuntu (WSL) terminal
-sudo apt update
-sudo apt install qemu-system-arm qemu-efi-aarch64 cloud-image-utils -y
-sudo apt install linux-tools-virtual hwdata -y # usbipd client tools for WSL
-# Note: usbipd-win itself is installed in Windows PowerShell:
-# winget install --interactive --exact dorssel.usbipd-win
-```
-
-### 5.2. Preparing Project Files on the Host Machine
-
-```bash
-# Navigate to your project's root directory (e.g., ~/edge-ai-accessibility-assistant)
-mkdir qemu_files
-
-# Download the Ubuntu Cloud Image
-wget -P ./qemu_files/ https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-arm64.img
-
-# Create the user-data.yaml file (CONTAINS PASSWORD - DO NOT COMMIT TO GIT!)
-touch ./qemu_files/user-data.yaml
-nano ./qemu_files/user-data.yaml
-# Paste the following content, replacing 'YourSecurePassword' with your actual secure password:
-#cloud-config
-#user: ubuntu
-#password: 'YourSecurePassword'
-#chpasswd: { expire: False }
-#ssh_pwauth: True
-
-# Create the virtual CD-ROM image for user data
-cloud-localds -v ./qemu_files/seed.img ./qemu_files/user-data.yaml
-
-# Copy the Ubuntu image to create the virtual disk
-cp ./qemu_files/jammy-server-cloudimg-arm64.img ./qemu_files/ubuntu_vm_disk.qcow2
-
-# Resize the virtual disk to 20GB (can be increased to 30G/40G if more space is needed)
-qemu-img resize ./qemu_files/ubuntu_vm_disk.qcow2 20G
-```
-
-### 5.3. Virtual Machine Initial Setup (Guest - Inside SSH)
-
-```bash
-# After connecting via SSH
-# Verify disk size (should automatically be 20G): df -h
-
-# Update the system
-sudo apt update
-sudo apt upgrade -y
-
-# Install necessary development tools
-sudo apt install python3-pip python3-venv build-essential unzip wget -y
-
-# Install SSH server (already part of the setup, can be re-run for confirmation)
-sudo apt install openssh-server -y
-```
-
-## 6. AI Development Environment and Code
-
-### 6.1. Python Environment and Libraries
-
-```bash
-# Inside the SSH-connected terminal on the VM...
-# Create and navigate to the projects folder
-mkdir -p ~/projects
-cd ~/projects
-
-# Create and activate the Python virtual environment
-python3 -m venv ai_assistant_env
-source ai_assistant_env/bin/activate
-
-# Install required libraries
-pip install numpy Pillow tflite-runtime 
-```
-
-### 6.2. AI Model and Test Files
-
-```bash
-# (While the virtual environment is active)
-# Download the test model, labels, and an example image
-wget https://storage.googleapis.com/download.tensorflow.org/models/tflite/mobilenet_v1_1.0_224_quant_and_labels.zip
-unzip mobilenet_v1_1.0_224_quant_and_labels.zip
-# Rename the labels file for easier access
-mv labels_mobilenet_quant_v1_224.txt labels.txt
-wget https://raw.githubusercontent.com/tensorflow/tensorflow/master/tensorflow/lite/examples/python/testdata/grace_hopper.bmp
-```
-
-### 6.3. AI Server Code (`ai_server.py`)
-
-Create this file in the VM (`nano ~/projects/ai_server.py`) and paste the following code:
+This file must be created inside the Guest VM (e.g., using `nano ~/projects/ai_server.py`). It contains the logic for receiving images and performing AI classification.
 
 ```python
 import socket
@@ -196,27 +122,26 @@ def classify_image(interpreter, image_bytes, labels):
     """Classifies the incoming image data and returns the result as text."""
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-    height = input_details[0]['shape'][1]
-    width = input_details[0]['shape'][2]
+    
+    height = input_details['shape']
+    width = input_details['shape']
 
-    # Convert incoming bytes to PIL Image and resize for the model
     image = Image.open(io.BytesIO(image_bytes)).resize((width, height))
     input_data = np.expand_dims(image, axis=0)
 
-    # Set the tensor and invoke the interpreter for prediction
-    interpreter.set_tensor(input_details[0]['index'], input_data)
+    interpreter.set_tensor(input_details['index'], input_data)
     
     start_time = time.time()
     interpreter.invoke()
     stop_time = time.time()
 
-    # Get prediction results
-    output_data = interpreter.get_tensor(output_details[0]['index'])
+    output_data = interpreter.get_tensor(output_details['index'])
     results = np.squeeze(output_data)
     
-    # Get the top predicted label
     top_k = results.argsort()[-1:][::-1]
-    top_label = f'{labels[top_k[0]]}: {results[top_k[0]] / 255.0:.2f}'
+    
+    top_label_index = top_k
+    top_label = f'{labels[top_label_index]}: {results[top_label_index] / 255.0:.2f}'
     
     print(f"Prediction: {top_label} ({stop_time - start_time:.3f}s)")
     return top_label
@@ -228,8 +153,8 @@ def main():
     interpreter.allocate_tensors()
     print("Model loaded successfully.")
 
-    HOST = '0.0.0.0'  # Listen on all network interfaces
-    PORT = 12345      # Port forwarded from Host machine
+    HOST = '0.0.0.0'
+    PORT = 12345
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
@@ -241,15 +166,13 @@ def main():
             with conn:
                 print(f"Connection received from: {addr}")
                 
-                # Receive image data in chunks
                 image_data = b""
                 while True:
-                    data = conn.recv(4096)
-                    if not data:
+                    chunk = conn.recv(4096)
+                    if not chunk:
                         break
-                    image_data += data
+                    image_data += chunk
                 
-                # Classify and send result back
                 if image_data:
                     result_text = classify_image(interpreter, image_data, labels)
                     conn.sendall(result_text.encode('utf-8'))
@@ -258,9 +181,9 @@ if __name__ == '__main__':
     main()
 ```
 
-### 6.4. Camera Client Code (`camera_client.py`)
+### 5.2. Camera Client (`camera_client.py` on Host)
 
-Create this file on the **Host machine** (in your main project folder) using `nano camera_client.py` and paste the following code:
+This file is located in the project's root directory. It is responsible for capturing video from the webcam, setting the stable MJPEG format, and sending frames to the AI server.
 
 ```python
 import cv2
@@ -270,122 +193,83 @@ import time
 def main():
     HOST = 'localhost'
     PORT = 12345
-
-    # Camera index (0 is usually default. Try 1, 2, or -1 if 0 doesn't work.)
-    # Note: On some systems, 0 + cv2.CAP_V4L2 might be needed (e.g., cap = cv2.VideoCapture(0 + cv2.CAP_V4L2))
     cap = cv2.VideoCapture(0)
+    
+    # Set MJPEG format to prevent camera timeout errors
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
 
     if not cap.isOpened():
-        print("Error: Could not open camera.")
-        print("Please ensure no other application is using the camera.")
-        print("Verify 'usbipd bind' and 'usbipd attach' steps are done.")
+        print("Error: Could not open camera. Check if it is used by another application.")
         return
 
-    print("Camera opened successfully. Sending frames...")
+    print("Camera opened successfully. Sending frames to the server...")
 
     while True:
         try:
             ret, frame = cap.read()
             if not ret:
                 print("Error: Could not read frame from camera. Retrying...")
-                # If cannot read frame, release camera and try re-opening
-                cap.release()
-                cap = cv2.VideoCapture(0) # Try opening again
-                if not cap.isOpened():
-                    print("Error: Could not re-open camera. Exiting.")
-                    break
-                time.sleep(1) # Give time for camera to re-initialize
+                time.sleep(1)
                 continue
 
-            # Encode the frame into JPEG format for network transfer
             is_success, buffer = cv2.imencode(".jpg", frame)
             if not is_success:
-                print("Error: Could not encode frame to JPG. Skipping frame.")
+                print("Error: Could not encode frame to JPG. Skipping.")
                 continue
             
-            # Create a network socket and connect to the server
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 try:
                     s.connect((HOST, PORT))
-                    s.sendall(buffer)
-                    s.shutdown(socket.SHUT_WR) # Signal that we are done sending
-
-                    # Receive the classification result from the server
+                    s.sendall(buffer.tobytes())
                     response = s.recv(1024).decode('utf-8')
                     print(f"Result from Virtual Machine: {response}")
 
                 except ConnectionRefusedError:
                     print("Error: Connection refused. Is the ai_server.py running on the VM?")
-                    time.sleep(2) # Wait before retrying connection
-                    continue
-                except BrokenPipeError:
-                    print("Error: Broken pipe - Server disconnected. Retrying connection...")
                     time.sleep(2)
-                    continue
+                except Exception as e:
+                    print(f"Socket Error: {e}")
+                    time.sleep(2)
 
-            time.sleep(1) # Send one frame per second
+            time.sleep(1)
 
+        except KeyboardInterrupt:
+            print("\nProgram terminated by user.")
+            break
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             break
             
-    # Release the camera resource when the loop ends or on error
+    print("Releasing camera resource.")
     cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
 ```
 
-### 6.5. Running the Code
+## 6. Troubleshooting & Critical Fixes
 
-1. **On the Virtual Machine (SSH-connected terminal):** Start `ai_server.py`.
-   ```bash
-   cd ~/projects
-   source ai_assistant_env/bin/activate
-   python3 ai_server.py
-   ```
+### 6.1. Critical Fix: `usbipd` Connection Fails or Freezes
 
-2. **On the Host Machine (WSL Ubuntu terminal, in your main project folder):** Start `camera_client.py`.
-   ```bash
-   source venv/bin/activate
-   pip install opencv-python-headless  # Ensure it's installed
-   python3 camera_client.py
-   ```
+*   **Symptoms:** The `usbipd attach` command fails with a `firewall` or `tcp connect` error, or it freezes without any output.
+*   **Permanent Solution:** Change WSL's networking mode to be more compatible. This is a one-time setup.
+    1.  Create a `.wslconfig` file in your Windows user profile folder (`%UserProfile%`). From **CMD** or **PowerShell**:
+        ```cmd
+        echo [wsl2] > %UserProfile%\.wslconfig
+        echo networkingMode=mirrored >> %UserProfile%\.wslconfig
+        ```
+    2.  Shutdown WSL completely to apply the change. In **PowerShell** or **CMD**:
+        ```powershell
+        wsl --shutdown
+        ```
+    3.  The next time WSL starts, it will use the new networking mode, resolving the issue.
 
-## 7. Current Challenge: Camera `select() timeout` Error
+### 6.2. Critical Fix: OpenCV `select() timeout` Error
 
-**Error Message:** `[ WARN:0@X.XXX] global cap_v4l.cpp:1049 tryIoctl VIDEOIO(V4L2:/dev/video0): select() timeout. Error: Could not read frame.`
-
-This indicates that the camera driver interface is experiencing timeout issues when attempting to read frame data. The fact that `fswebcam` works confirms camera accessibility through WSL, indicating the issue is specific to OpenCV's V4L2 interaction.
-
-### **Potential Solutions (Try Systematically!)**
-
-1. **Ensure No Other Application is Using the Camera (CRITICAL!)**: This is the most common cause. Close all applications on Windows that might use the camera (Discord, Zoom, Teams, Skype, Windows Camera App, browser tabs). A full computer reboot before starting the project is the safest approach.
-
-2. **Refresh USBIPD Connection (Hard Reset)**:
-   * In **Administrator PowerShell:**
-     ```powershell
-     .\usbipd detach --busid <BUSID> # If attached, detach it
-     .\usbipd bind --busid <BUSID>   # Bind it again
-     .\usbipd attach --wsl --busid <BUSID> # Attach it again
-     ```
-   * Then, try running the client in WSL again.
-
-3. **Force Camera Index and Backend**: Modify the `cap = cv2.VideoCapture(0)` line in `camera_client.py` and try different indices or backends.
-   * `cap = cv2.VideoCapture(1)`
-   * `cap = cv2.VideoCapture(2)` (if you have multiple USB cameras)
-   * `cap = cv2.VideoCapture(-1)` (try Windows default index)
-   * `cap = cv2.VideoCapture(0 + cv2.CAP_V4L2)` (force V4L2 backend)
-   * **After each change, save the file and re-run the client.**
-
-4. **Restart WSL Services**:
-   * Close all WSL Ubuntu terminal windows.
-   * In Windows CMD/PowerShell: `wsl --shutdown`
-   * Then, restart WSL (by simply opening a new Ubuntu terminal).
-   * Repeat the `usbipd` steps (bind and attach).
-   * Run the client again.
-
-5. **Reinstall `opencv-python-headless` (as a last resort)**: Sometimes, a corrupted installation can cause this.
-   * `pip uninstall opencv-python-headless -y`
-   * `pip install opencv-python-headless`
-   * Then re-run the client.
+*   **Symptom:** The client prints "Error: Could not read frame from camera."
+*   **Primary Solution:** The line `cap.set(cv2.CAP_PROP_FOURCC, ...)` in the `camera_client.py` file is designed to prevent this.
+*   **Secondary Causes:**
+    *   **Camera in Use:** Ensure no other application (Zoom, Teams, etc.) is using the camera. A system reboot is the most reliable way to ensure this.
+    *   **Incorrect Index:** Try changing `cv2.VideoCapture(0)` to `cv2.VideoCapture(1)` if you have multiple cameras.
+```
