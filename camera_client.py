@@ -1,78 +1,68 @@
 import cv2
 import socket
 import time
+import numpy as np
+import pyttsx3
+
+HOST = 'localhost'
+PORT = 12345
+CAMERA_INDEX = 0
 
 def main():
-    HOST = 'localhost'
-    PORT = 12345
-
-    # Select camera index 0 (the default camera).
-    cap = cv2.VideoCapture(0)
-
-    # --- HIGH-LEVEL SOLUTION ---
-    # Set the camera's video format to MJPEG.
-    # This is highly effective at preventing select() timeout errors on many webcams.
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-
-    # Check if the camera was successfully opened.
-    if not cap.isOpened():
-        print("Error: Could not open camera.")
-        print("Please ensure no other application is using the camera.")
-        print("Also, verify that the 'usbipd bind' and 'usbipd attach' steps were completed.")
+    try:
+        tts_engine = pyttsx3.init()
+        tts_engine.setProperty('rate', 160)
+    except Exception as e:
+        print(f"ERROR: Could not initialize TTS engine: {e}")
         return
 
-    print("Camera opened successfully. Sending frames to the server...")
+    cap = cv2.VideoCapture(CAMERA_INDEX)
+    if not cap.isOpened():
+        print("ERROR: Could not open camera.")
+        return
+
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+    print("Camera opened successfully. Sending frames...")
+    print("(Press Ctrl+C to quit)")
+
+    # --- NEW: Variable to remember the last spoken text ---
+    last_spoken_text = ""
 
     while True:
-        try:
-            # Read a single, instantaneous frame from the camera.
-            ret, frame = cap.read()
-            if not ret:
-                print("Error: Could not read frame from camera. Retrying...")
-                time.sleep(1) # Wait a moment before trying again.
-                continue
-
-            # Encode the frame into the JPEG format to compress it for network transfer.
-            is_success, buffer = cv2.imencode(".jpg", frame)
-            if not is_success:
-                print("Error: Could not encode frame to JPG. Skipping this frame.")
-                continue
-            
-            # Create a new socket for each frame and connect to the server.
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.connect((HOST, PORT))
-                    s.sendall(buffer.tobytes()) # Send the compressed image data.
-                    s.shutdown(socket.SHUT_WR) # Signal the server that we are done sending.
-
-                    # Receive the classification result from the server and print it.
-                    response = s.recv(1024).decode('utf-8')
-                    print(f"Result from Virtual Machine: {response}")
-
-                except ConnectionRefusedError:
-                    print("Error: Connection refused. Is the ai_server.py running on the VM?")
-                    time.sleep(2) # Wait 2 seconds before retrying.
-                    continue
-                except BrokenPipeError:
-                    print("Error: Broken pipe. Did the server disconnect? Retrying...")
-                    time.sleep(2)
-                    continue
-
-            # Wait for 1 second to send about one frame per second.
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not read frame from camera.")
             time.sleep(1)
+            continue
 
-        except KeyboardInterrupt:
-            # If the user presses CTRL+C to stop the program...
-            print("Program terminated by user.")
-            break
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            print("Error: Could not encode frame.")
+            continue
+
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5.0)
+                s.connect((HOST, PORT))
+                s.sendall(buffer.tobytes())
+                s.shutdown(socket.SHUT_WR)
+
+                response = s.recv(1024).decode('utf-8')
+
+                if response:
+                    print(f"AI Says: {response}")
+
+                    # --- NEW LOGIC: Only speak if the message is new ---
+                    if response != last_spoken_text:
+                        tts_engine.say(response)
+                        tts_engine.runAndWait()
+                        last_spoken_text = response # Remember what was just said
+                    # --- END NEW LOGIC ---
+
         except Exception as e:
-            # For any other unexpected errors...
-            print(f"An unexpected error occurred: {e}")
-            break
-            
-    # When the loop ends or an error occurs, release the camera resource.
-    print("Releasing camera resource.")
-    cap.release()
+            # This will catch connection errors and others
+            print(f"An error occurred: {e}")
+            time.sleep(2)
 
 if __name__ == '__main__':
     main()

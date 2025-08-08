@@ -1,39 +1,120 @@
-```markdown
 # Edge-AI Accessibility Assistant: Developer Guide
 
-**Last Updated: 2025-08-07**
+**Last Updated: 2025-08-08**
 
 ## 1. Project Vision & Purpose
 
-This project is an **Edge-AI** assistant designed to help visually impaired individuals interact more independently with their physical environment. The system utilizes a standard computer's camera to perform all AI analysis locally within a virtualized ARM environment, ensuring user privacy and low-latency responses. The architecture serves as a practical implementation of edge computing, system programming, and AI model optimization.
+This project is an **Edge-AI** assistant designed to help visually impaired individuals interact more independently with their physical environment. The system utilizes a standard computer's camera to perform all AI analysis locally within a virtualized ARM environment, ensuring user privacy and low-latency responses.
 
 ## 2. Core Architecture
 
 The system consists of two primary components operating in tandem:
 
-*   **Host (Windows + WSL2):** The primary development machine. It stores the project files, launches the virtual environment, and provides the physical webcam interface.
-*   **Guest (QEMU + Ubuntu Server ARM64):** An isolated, virtualized ARM64 environment. It performs all intensive AI computations, processing the video stream received from the host.
+*   **Host (Windows + WSL2):** The primary development machine. It manages the user interface (camera, audio), project files, and launches the virtual environment.
+*   **Guest (QEMU + Ubuntu Server ARM64):** An isolated, virtualized ARM64 environment that performs all intensive AI computations.
 
-## 3. Architecture Benefits and Design Rationale
+---
 
-The virtualized architecture provides several key advantages:
+## 3. Environment Setup
 
-*   **Privacy and Data Security:** All AI processing occurs locally without requiring external cloud services, ensuring sensitive visual data never leaves the user's device.
-*   **Reduced Latency:** Local processing eliminates network delays associated with cloud-based AI services, providing immediate feedback to users.
-*   **Offline Capability:** The system functions independently of internet connectivity, making it reliable in various environments.
-*   **Resource Isolation:** The virtual machine creates a controlled environment that simulates resource-constrained edge devices, allowing for realistic testing and optimization.
-*   **Scalability and Portability:** The containerized approach enables easy deployment across different hardware platforms and facilitates testing on various ARM-based systems.
-*   **Development Flexibility:** Virtualization enables rapid prototyping and testing without requiring physical embedded hardware during development phases.
+### 3.1. One-Time WSL Configuration
 
-## 4. Daily Workflow & Essential Commands
+**Critical Fix: Enable WSL Networking**
+Apply this fix once to resolve common `pip install` freezing and connectivity issues:
 
-Follow these steps for a typical development session.
+1.  Create or edit the `.wslconfig` file in your Windows user profile:
+    ```powershell
+    # In Windows PowerShell/CMD
+    echo [wsl2] > %UserProfile%\.wslconfig
+    echo networkingMode=mirrored >> %UserProfile%\.wslconfig
+    ```
 
-### 4.1. Start the Virtual Machine (Once per session)
+2.  Shutdown WSL completely to apply changes:
+    ```powershell
+    wsl --shutdown
+    ```
 
-From your project's root directory in a **WSL terminal**, execute the following. Keep this terminal open.
+### 3.2. Guest VM (AI Server) Setup
 
+The Guest VM runs the `ai_server.py`. Ensure a Python virtual environment (`ai_assistant_env`) is set up inside the VM with required packages:
+*   `numpy`
+*   `Pillow`
+*   `tflite_runtime`
+
+### 3.3. Host (WSL) Client Setup
+
+The Host runs the `camera_client.py`. This setup is critical for audio output.
+
+**1. Install System-Level Audio Dependencies**
 ```bash
+sudo apt update && sudo apt install espeak-ng alsa-utils libasound2-plugins
+```
+
+**2. Configure WSL Audio (`.asoundrc`)**
+Create the audio configuration file in the WSL home directory:
+```bash
+nano ~/.asoundrc
+```
+
+Paste this content:
+```
+pcm.!default {
+    type pulse
+    server /mnt/wslg/PulseServer
+}
+
+ctl.!default {
+    type pulse
+    server /mnt/wslg/PulseServer
+}
+```
+
+**3. Create Python Virtual Environment**
+```bash
+# From project root directory
+python3 -m venv client_env
+```
+
+**4. Install Python Dependencies**
+```bash
+# Activate environment
+source client_env/bin/activate
+
+# Install required packages
+pip install pyttsx3 opencv-python numpy
+```
+
+---
+
+## 4. Project Status & Next Steps
+
+### **Current Status: Phase 2 Complete**
+
+The system can now "see" via camera and "speak" the results using Text-to-Speech.
+
+**Completed Features:**
+*   Enhanced AI Response: Human-readable sentences with confidence thresholding.
+*   Audio Output Integration: Text-to-Speech with anti-repetition logic.
+*   Stable Architecture: Robust WSL-QEMU communication.
+
+### **Next Steps: Phase 3 - Interactive Assistant**
+
+*   **In Progress:** Voice Command Input (Wake-word detection and Speech-to-Text).
+*   **To Do:** Main Application Controller (Orchestrate the listen → process → respond loop).
+
+---
+
+## 5. Daily Workflow & Commands
+
+### Quick Start Checklist:
+1.  Start QEMU VM
+2.  Attach webcam via usbipd
+3.  SSH into VM and run AI server
+4.  Run camera client on host
+
+**Terminal 1: Start Virtual Machine**
+```bash
+# From project root directory
 qemu-system-aarch64 \
   -M virt \
   -cpu cortex-a53 \
@@ -47,132 +128,104 @@ qemu-system-aarch64 \
   -nographic
 ```
 
-### 4.2. Attach the Webcam to WSL (Once per session)
+**Windows PowerShell: Attach Webcam**
+```powershell
+# Run as Administrator
+usbipd list                              # Find camera BUSID
+usbipd bind --busid <BUSID>              # Bind device
+usbipd attach --wsl --busid <BUSID>      # Attach to WSL
+```
 
-1.  Open **Windows PowerShell as Administrator**.
-2.  Find your webcam's **BUSID** (e.g., `2-5`):
-    ```powershell
-    usbipd list
-    ```
-3.  Bind and attach the device to WSL:
-    ```powershell
-    # Use the BUSID you identified above
-    usbipd bind --busid <BUSID>
-    usbipd attach --wsl --busid <BUSID>
-    ```
-
-### 4.3. Connect to the Virtual Machine via SSH
-
-Open a **new WSL terminal** and connect to the running guest VM.
-
+**Terminal 2: AI Server**
 ```bash
+# Connect to VM
 ssh ubuntu@localhost -p 2222
-```
-*(Password is the one set in your `user-data.yaml` file.)*
 
-### 4.4. Run the AI Server
+# Start AI server
+source ~/projects/ai_assistant_env/bin/activate
+python3 ~/projects/ai_server.py```
 
-Inside the **SSH-connected terminal**, navigate to the projects directory, activate the environment, and start the AI server.
-
+**Terminal 3: Camera Client**
 ```bash
-cd ~/projects
-source ai_assistant_env/bin/activate
-python3 ai_server.py
-```
-*(The server will print `Server is listening...` and wait for connections.)*
+# Activate client environment
+source client_env/bin/activate
 
-### 4.5. Run the Camera Client
-
-Open a **third WSL terminal** on your host machine, navigate to the project's root directory, and start the camera client.
-
-```bash
-# Make sure you are in the project's root directory
+# Run camera client
 python3 camera_client.py
 ```
-*(You should now see classification results printed in this terminal.)*
 
-### 4.6. Safely Shutdown the VM
+---
 
-When finished, run this command **inside the SSH-connected terminal**:
+## 6. Code Implementation
 
-```bash
-sudo shutdown now
-```
-
-## 5. Code & Environment
-
-### 5.1. AI Server (`ai_server.py` on Guest)
-
-This file must be created inside the Guest VM (e.g., using `nano ~/projects/ai_server.py`). It contains the logic for receiving images and performing AI classification.
-
+### 6.1. AI Server (`ai_server.py` on Guest VM)
 ```python
-import socket
-import numpy as np
+import socket, numpy as np, time, io
 from PIL import Image
 import tflite_runtime.interpreter as tflite
-import time
-import io
 
 def load_labels(filename):
-    """Loads labels from a text file."""
     with open(filename, 'r') as f:
         return [line.strip() for line in f.readlines()]
 
 def classify_image(interpreter, image_bytes, labels):
-    """Classifies the incoming image data and returns the result as text."""
+    # Retrieve input and output tensor details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     
+    # Correctly access shape details from the first input tensor
     height = input_details['shape']
     width = input_details['shape']
 
+    # Resize image to model input dimensions
     image = Image.open(io.BytesIO(image_bytes)).resize((width, height))
     input_data = np.expand_dims(image, axis=0)
 
+    # Set input tensor and run inference
     interpreter.set_tensor(input_details['index'], input_data)
     
     start_time = time.time()
     interpreter.invoke()
     stop_time = time.time()
 
+    # Get output tensor results
     output_data = interpreter.get_tensor(output_details['index'])
     results = np.squeeze(output_data)
     
-    top_k = results.argsort()[-1:][::-1]
-    
-    top_label_index = top_k
-    top_label = f'{labels[top_label_index]}: {results[top_label_index] / 255.0:.2f}'
-    
-    print(f"Prediction: {top_label} ({stop_time - start_time:.3f}s)")
-    return top_label
+    # Get top prediction index and confidence
+    top_k_index = results.argsort()[-1]
+    confidence = results[top_k_index] / 255.0
+    confidence_threshold = 0.5
+
+    # Generate human-readable response
+    if confidence > confidence_threshold:
+        object_name = labels[top_k_index]
+        readable_result = f"I see a {object_name}."
+    else:
+        readable_result = "I'm not sure what I see."
+
+    print(f"Prediction: {readable_result} (Confidence: {confidence:.2f})")
+    return readable_result
 
 def main():
-    print("Loading AI Model and labels...")
-    labels = load_labels("labels.txt")
-    interpreter = tflite.Interpreter(model_path="mobilenet_v1_1.0_224_quant.tflite")
-    interpreter.allocate_tensors()
-    print("Model loaded successfully.")
-
-    HOST = '0.0.0.0'
-    PORT = 12345
+    try:
+        labels = load_labels("labels.txt")
+        interpreter = tflite.Interpreter(model_path="mobilenet_v1_1.0_224_quant.tflite")
+        interpreter.allocate_tensors()
+        print("Model loaded. Server is listening on 0.0.0.0:12345...")
+    except FileNotFoundError as e:
+        print(f"Error loading model or labels: {e}")
+        return
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(('0.0.0.0', 12345))
         s.listen()
-        print(f"Server is listening on {HOST}:{PORT}...")
-
         while True:
             conn, addr = s.accept()
             with conn:
-                print(f"Connection received from: {addr}")
-                
-                image_data = b""
-                while True:
-                    chunk = conn.recv(4096)
-                    if not chunk:
-                        break
-                    image_data += chunk
-                
+                # Receive image data
+                image_data = b"".join(iter(lambda: conn.recv(4096), b""))
                 if image_data:
                     result_text = classify_image(interpreter, image_data, labels)
                     conn.sendall(result_text.encode('utf-8'))
@@ -181,95 +234,30 @@ if __name__ == '__main__':
     main()
 ```
 
-### 5.2. Camera Client (`camera_client.py` on Host)
+### 6.2. Camera Client (`camera_client.py` on Host WSL)
+This script is responsible for capturing video, sending frames to the AI server, and speaking the results. The code is maintained in the `camera_client.py` file within the repository.
 
-This file is located in the project's root directory. It is responsible for capturing video from the webcam, setting the stable MJPEG format, and sending frames to the AI server.
+---
 
-```python
-import cv2
-import socket
-import time
+## 7. Troubleshooting
 
-def main():
-    HOST = 'localhost'
-    PORT = 12345
-    cap = cv2.VideoCapture(0)
-    
-    # Set MJPEG format to prevent camera timeout errors
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+### Common Issues & Solutions
 
-    if not cap.isOpened():
-        print("Error: Could not open camera. Check if it is used by another application.")
-        return
+**`pip install` Freezes or Times Out**
+- **Cause:** WSL networking configuration.
+- **Solution:** Apply the `.wslconfig` fix described in Section 3.1.
 
-    print("Camera opened successfully. Sending frames to the server...")
+**No Audio Output in WSL**
+- **Symptoms:** Errors mentioning `aplay`, `ALSA`, `cannot find card '0'`, or `pulse`.
+- **Solution:** Complete all steps in Section 3.3 regarding audio setup.
 
-    while True:
-        try:
-            ret, frame = cap.read()
-            if not ret:
-                print("Error: Could not read frame from camera. Retrying...")
-                time.sleep(1)
-                continue
+**Camera Not Detected**
+- **Symptoms:** `Could not open camera` error.
+- **Solutions:** 
+  - Ensure the camera is attached via `usbipd`.
+  - Try a different camera index (e.g., `CAMERA_INDEX = 1`).
+  - Close other applications that may be using the camera.
 
-            is_success, buffer = cv2.imencode(".jpg", frame)
-            if not is_success:
-                print("Error: Could not encode frame to JPG. Skipping.")
-                continue
-            
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.connect((HOST, PORT))
-                    s.sendall(buffer.tobytes())
-                    response = s.recv(1024).decode('utf-8')
-                    print(f"Result from Virtual Machine: {response}")
-
-                except ConnectionRefusedError:
-                    print("Error: Connection refused. Is the ai_server.py running on the VM?")
-                    time.sleep(2)
-                except Exception as e:
-                    print(f"Socket Error: {e}")
-                    time.sleep(2)
-
-            time.sleep(1)
-
-        except KeyboardInterrupt:
-            print("\nProgram terminated by user.")
-            break
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            break
-            
-    print("Releasing camera resource.")
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == '__main__':
-    main()
-```
-
-## 6. Troubleshooting & Critical Fixes
-
-### 6.1. Critical Fix: `usbipd` Connection Fails or Freezes
-
-*   **Symptoms:** The `usbipd attach` command fails with a `firewall` or `tcp connect` error, or it freezes without any output.
-*   **Permanent Solution:** Change WSL's networking mode to be more compatible. This is a one-time setup.
-    1.  Create a `.wslconfig` file in your Windows user profile folder (`%UserProfile%`). From **CMD** or **PowerShell**:
-        ```cmd
-        echo [wsl2] > %UserProfile%\.wslconfig
-        echo networkingMode=mirrored >> %UserProfile%\.wslconfig
-        ```
-    2.  Shutdown WSL completely to apply the change. In **PowerShell** or **CMD**:
-        ```powershell
-        wsl --shutdown
-        ```
-    3.  The next time WSL starts, it will use the new networking mode, resolving the issue.
-
-### 6.2. Critical Fix: OpenCV `select() timeout` Error
-
-*   **Symptom:** The client prints "Error: Could not read frame from camera."
-*   **Primary Solution:** The line `cap.set(cv2.CAP_PROP_FOURCC, ...)` in the `camera_client.py` file is designed to prevent this.
-*   **Secondary Causes:**
-    *   **Camera in Use:** Ensure no other application (Zoom, Teams, etc.) is using the camera. A system reboot is the most reliable way to ensure this.
-    *   **Incorrect Index:** Try changing `cv2.VideoCapture(0)` to `cv2.VideoCapture(1)` if you have multiple cameras.
-```
+**Connection Refused Errors**
+- **Cause:** AI server is not running or is using a different port.
+- **Solution:** Verify the AI server is running and shows "Server is listening...".
