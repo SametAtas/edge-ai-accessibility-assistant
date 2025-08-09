@@ -1,85 +1,51 @@
 # Project Notes & Development Log: Edge-AI Accessibility Assistant
 
-**VERSION: 1.0 - "Speaking Eye" Milestone**
+**VERSION: 1.0 - "Speaking Eye" Milestone (Stabilized)**
 
 ## 1. Project Summary and Vision
 
 To develop a privacy-focused, offline-first AI assistant for the visually impaired. The architecture leverages a QEMU-virtualized ARM environment for AI processing, with a host-level client managing the user interface (camera and audio).
 
-## 2. Current Status: Phase 2 Completed
+## 2. Current Status: Milestone 1.0 Completed
 
-The project has successfully achieved its initial proof of concept. The core infrastructure is stable, and the primary "see and speak" functionality is operational.
+The project has successfully achieved a stable, functional prototype. The core "see and speak" functionality is operational, and the underlying architecture has been hardened to resolve critical show-stopper bugs encountered during development.
 
 ### 2.1. Key Accomplishments
 
 **1. AI Server (`ai_server.py`) Stabilization:**
-*   **Critical Bug Fixes:** Corrected a `TypeError` in TFLite tensor access by properly indexing the list returned by `get_input_details()`. Fixed a logical error in image resizing by correctly parsing `height` and `width` from the model's input shape.
-*   **Output Enhancement:** AI output was transitioned from raw class labels (e.g., "keyboard: 0.87") to human-readable sentences (e.g., "I see a keyboard.").
-*   **Robustness:** Implemented a confidence threshold to prevent the system from reporting low-certainty predictions, instead returning a message of uncertainty.
+*   **Output Enhancement:** AI output was transitioned from raw class labels to human-readable sentences with a confidence threshold.
+*   **Modularity:** Refactored into distinct functions for loading, classifying, and serving, improving readability and maintainability.
 
-**2. Camera Client (`camera_client.py`) Functionality:**
-*   **Text-to-Speech (TTS):** Integrated the `pyttsx3` library to provide audio feedback of the AI's findings.
-*   **User Experience:** Implemented logic to prevent the repetition of identical, consecutive results, making the audio feedback less intrusive.
+**2. Decoupled Client-Server Architecture:**
+*   **Centralized Configuration:** A `config.py` file was implemented to manage all settings, distinguishing between `SERVER_BIND_HOST` (for the VM) and `CLIENT_CONNECT_HOST` (for the host machine) for a robust network setup.
+*   **Dependency Management:** Established separate `requirements-vm.txt` and `requirements-windows.txt` files, creating fully reproducible environments for both the server and the client.
 
-**3. WSL Environment Hardening:**
-*   **Networking:** Resolved a critical issue where `pip install` commands would freeze indefinitely. This was traced to WSL's default network mode and permanently fixed by setting `networkingMode=mirrored` in the `.wslconfig` file.
-*   **Audio Subsystem:** Systematically debugged and resolved all audio output issues within WSL. This multi-step process was crucial for the project's success.
-*   **Dependency Management:** Established a clean architecture using separate Python virtual environments (`venv`) for the host client and the guest AI server, preventing dependency conflicts.
+**3. Architectural Migration for Stability (Client on Native Windows):**
+*   **Hardware Compatibility Solved:** Resolved persistent `select() timeout` errors with the webcam by migrating the `camera_client.py` from WSL to native Windows. This gives OpenCV direct, reliable access to the camera's hardware drivers.
+*   **TTS Stability Solved:** Fixed a critical bug where the `pyttsx3` library would freeze the main application loop after the first speech. The solution involved moving the TTS engine into a separate, non-blocking process using Python's `multiprocessing` library, ensuring the UI remains responsive.
 
 ### 2.2. Critical Lessons Learned
 
-*   **WSL Audio is a Chain of Dependencies:** Successful audio output in WSL is not monolithic. It requires a complete chain of components to be in place:
-    1.  **The Engine:** A TTS engine like `espeak-ng`.
-    2.  **The Player:** A command-line audio player like `aplay` (from `alsa-utils`).
-    3.  **The Bridge:** The ALSA plugin to connect to the PulseAudio server (`libasound2-plugins`).
-    4.  **The Map:** The `~/.asoundrc` file to direct all audio traffic to the WSLg PulseAudio server.
-    The absence of any single link in this chain results in failure.
+*   **WSL is for Computation, Not Direct Hardware I/O:** This project demonstrated that while WSL2 is exceptional for running containerized Linux environments and handling computation (like the AI server), it can be a source of instability for direct, real-time hardware interactions (like camera streams). **The most robust architectural pattern is to keep computation in the isolated environment (WSL/VM) and move hardware-facing I/O to the native host OS.**
 
-*   **Virtual Environments are Non-Negotiable:** The strict isolation of dependencies between the host (x86, user-facing libraries) and the guest (ARM, AI-specific libraries) proved essential. It prevented version conflicts and streamlined debugging.
+*   **Isolate Blocking Operations:** The `pyttsx3` freezing issue was a classic example of a blocking I/O call halting an entire application. The solution—running the blocking call in a separate process—is a key technique for building responsive, event-driven applications.
 
-*   **WSL Networking Mode is a Common Pitfall:** The `mirrored` networking mode should be considered a default for any WSL development involving extensive network I/O or connections to host services, as it resolves many obscure firewall and connectivity problems.
+*   **Virtual Environments are Non-Negotiable:** The strict isolation of dependencies between the Windows client (`win_env`) and the Linux VM server (`ai_assistant_env`) proved essential. It prevented version conflicts and streamlined debugging immensely.
 
 ---
 
-## 3. Future Development Roadmap & Optimization Strategy
+## 3. Future Development Roadmap
 
-**Current State Analysis:** The project has successfully reached its initial "Speaking Eye" milestone. However, to elevate this project from a functional prototype to a high-quality, portfolio-worthy piece of engineering, a dedicated phase of optimization, refactoring, and feature deepening is required. The following roadmap outlines these strategic steps.
+With a stable foundation, the project is now ready for the next phase: transforming the tool into a true interactive assistant.
 
-### **Phase 3.1: Refactoring for Maintainability ("Solid Foundation")**
+*   **Task: Voice Command Input (Wake-word & Speech-to-Text):**
+    *   **Goal:** Allow the user to activate and command the assistant with their voice.
+    *   **Action:** Research and implement a lightweight wake-word engine (e.g., `pvporcupine`) and a small, efficient Speech-to-Text model on the AI server.
 
-*   **Task: Centralized Configuration:**
-    *   **Objective:** Decouple settings from application logic.
-    *   **Action:** Migrate hard-coded values (IPs, ports, model paths, thresholds) into a dedicated `config.ini` file.
+*   **Task: Transition to Object Detection (From "What" to "Where"):**
+    *   **Goal:** Provide spatial context for objects.
+    *   **Action:** Replace the current image classification model with a lightweight object detection model (e.g., `SSD-MobileNet`). The server will be updated to return not just labels, but also bounding box coordinates, which the client can translate into descriptive locations (e.g., "a cup on your left").
 
-*   **Task: Code Modularization:**
-    *   **Objective:** Improve code readability and reusability.
-    *   **Action:** Refactor `camera_client.py` and `ai_server.py` by breaking down major functionalities into distinct functions or classes.
-
-### **Phase 3.2: Performance Analysis & Optimization ("Measure, Improve, Verify")**
-
-*   **Task: Establish Performance Baselines:**
-    *   **Objective:** Create metrics to measure all future optimizations against.
-    *   **Action:** Implement timing logic to measure End-to-End Latency (from frame capture to TTS completion).
-
-*   **Task: Network Efficiency Experiments:**
-    *   **Objective:** Reduce data transmission size and its impact on latency.
-    *   **Hypothesis:** Lowering image quality will significantly reduce latency with a minimal impact on accuracy.
-    *   **Action:** Systematically test various JPEG compression levels and image resolutions and document the trade-offs.
-
-*   **Task: AI Model Benchmarking:**
-    *   **Objective:** Determine the optimal model for the given resource constraints.
-    *   **Hypothesis:** A more modern architecture like MobileNetV2 may offer better performance than MobileNetV1.
-    *   **Action:** Adapt the AI server to easily switch between different `.tflite` models and create a comparative table of each model's inference time, accuracy, and file size.
-
-### **Phase 3.3: Core Feature Enhancement ("From 'What' to 'Where'")**
-
-*   **Task: Transition to Object Detection:**
-    *   **Objective:** Provide spatial context in addition to object identification.
-    *   **Action:** Replace the current image classification model with an object detection model (e.g., SSD-MobileNet).
-    *   **Implementation:** Modify the server to parse bounding box coordinates and develop logic to translate these coordinates into descriptive locations (e.g., "left," "center," "right").
-
-### **Phase 3.4: Architectural Improvements ("Future-Proofing")**
-
-*   **Task: Implement a Structured Communication Protocol:**
-    *   **Objective:** Move from raw text to a more robust and extensible data format.
-    *   **Action:** Use JSON for all client-server communication to easily handle more complex data structures in the future.
+*   **Task: Performance Optimization & Benchmarking:**
+    *   **Goal:** Measure and improve end-to-end latency.
+    *   **Action:** Systematically benchmark different image resolutions, JPEG quality settings, and alternative AI models (`MobileNetV2/V3`) to find the optimal balance between speed and accuracy.
