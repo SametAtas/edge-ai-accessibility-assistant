@@ -1,44 +1,36 @@
-import cv2
-import socket
-import time
-import pyttsx3
-import config
-from multiprocessing import Process
+import socket, cv2, time, json, config
+from multiprocessing import Process, freeze_support
+import numpy as np
 
-def speak_in_separate_process(text_to_speak):
-    """
-    This function runs in a completely separate process.
-    It initializes the TTS engine, speaks the text, and then terminates.
-    This prevents it from freezing the main application.
-    """
+# CRITICAL: This must match your model's expected input size!
+# Your server shows "Expected input shape: [1 640 640 3]"
+MODEL_INPUT_SIZE = (640, 640)
+
+def speak_text(text: str):
+    """Initializes TTS in a separate process to speak text non-blockingly."""
     try:
+        import pyttsx3
         engine = pyttsx3.init()
-        engine.say(text_to_speak)
+        if config.OUTPUT_LANGUAGE == 'tr':
+            try:
+                voices = engine.getProperty('voices')
+                for voice in voices:
+                    if 'turkish' in voice.name.lower(): engine.setProperty('voice', voice.id); break
+            except Exception: pass
+        engine.setProperty('rate', 175)
+        engine.say(text)
         engine.runAndWait()
         engine.stop()
     except Exception as e:
-        # This error will be printed in the console but won't crash the main app
         print(f"[TTS Process Error] {e}")
 
-def setup_camera():
-    """
-    Initializes the camera using the index specified in the config.
-    """
-    cap = cv2.VideoCapture(config.CAMERA_INDEX)
-    if not cap.isOpened():
-        print(f"ERROR: Could not open camera at index {config.CAMERA_INDEX}.")
-        print("Check if the camera is connected and not used by another application.")
-        return None
-    print("Camera opened successfully.")
-    return cap
-
-def get_prediction_from_server(frame):
-    """
-    Sends a video frame to the AI server and retrieves the classification result.
-    """
-    is_success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    if not is_success:
-        print("ERROR: Could not encode frame to JPG format.")
+def get_prediction(frame: np.ndarray) -> dict | None:
+    """Encodes a frame, sends it to the server, and returns the parsed JSON response."""
+    # FIXED: Now using the correct model input size
+    frame_resized = cv2.resize(frame, MODEL_INPUT_SIZE)
+    ret, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, config.JPEG_QUALITY])
+    if not ret:
+        print("Error: Failed to encode frame.")
         return None
 
     try:
@@ -46,79 +38,100 @@ def get_prediction_from_server(frame):
             s.settimeout(config.CLIENT_SOCKET_TIMEOUT)
             s.connect((config.CLIENT_CONNECT_HOST, config.SERVER_PORT))
             s.sendall(buffer.tobytes())
-            s.shutdown(socket.SHUT_WR)
-            response = s.recv(1024).decode('utf-8')
-            return response
+            s.shutdown(socket.SHUT_WR) # CRITICAL: Signals the server we are done sending.
+
+            response_data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                response_data += chunk
+            
+            if not response_data:
+                print("Error: Received empty response from server.")
+                return None
+                
+            return json.loads(response_data.decode('utf-8'))
     except socket.timeout:
-        print(f"ERROR: Connection timed out after {config.CLIENT_SOCKET_TIMEOUT} seconds.")
+        print("Error: Connection timed out.")
         return None
     except ConnectionRefusedError:
-        print("ERROR: Connection refused. Is the ai_server.py running on the VM?")
+        print("Error: Connection refused. Is the server running?")
         return None
     except Exception as e:
-        print(f"ERROR: An unexpected network error occurred: {e}")
+        print(f"Network error: {e}")
         return None
 
 def main():
-    """
-    The main orchestration function for the client application.
-    It captures frames, sends them for prediction, and speaks the results.
-    """
-    cap = setup_camera()
-    if not cap:
+    """Main client loop for real-time detection and feedback."""
+    print("Starting Camera Client...")
+    cap = cv2.VideoCapture(config.CAMERA_INDEX)
+    if not cap.isOpened():
+        print(f"FATAL: Cannot access camera at index {config.CAMERA_INDEX}.")
         return
-
-    last_spoken_text = ""
-    tts_process = None  # Track the speech process
     
-    print("\nStarting main loop... Press Ctrl+C in the terminal to exit.")
-    print(f"Connecting to AI server at {config.CLIENT_CONNECT_HOST}:{config.SERVER_PORT}")
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    print("Camera initialized. Press Ctrl+C to stop.")
     
-    while True:
-        try:
-            # Check if the previous speech process has finished
+    last_spoken_message = ""
+    tts_process = None
+    last_speech_time = 0
+    
+    try:
+        while True:
             if tts_process and not tts_process.is_alive():
-                tts_process.join()  # Clean up resources
-                tts_process = None
-
+                tts_process.join(); tts_process = None
+            
             ret, frame = cap.read()
             if not ret:
-                print("ERROR: Could not read frame from camera. Retrying...")
-                time.sleep(1)
-                continue
-
-            prediction = get_prediction_from_server(frame)
-
-            # If we have a new prediction AND no speech process is currently running
-            if prediction and prediction != last_spoken_text and (tts_process is None):
-                print(f"Server Response: \"{prediction}\" -> Speaking.")
-                last_spoken_text = prediction
+                print("Warning: Could not read frame."); time.sleep(0.5); continue
+            
+            response = get_prediction(frame)
+            
+            if response and response.get('success'):
+                message = response.get('message', '')
+                object_count = response.get('object_count', 0)
+                print(f"[AI]: {message}")
                 
-                # Start the speech job in a separate process
-                tts_process = Process(target=speak_in_separate_process, args=(prediction,))
-                tts_process.start()
-            elif prediction:
-                # Show the prediction but don't speak if it's the same
-                print(f"Server Response: \"{prediction}\" (same as before, not speaking)")
+                current_time = time.time()
+                time_since_last_speech = current_time - last_speech_time
+                
+                # IMPROVED: Should speak if message is different (regardless of object count)
+                # This allows "I can't see anything" to be spoken too
+                should_speak = (message != last_spoken_message and
+                                time_since_last_speech > config.SPEECH_COOLDOWN and
+                                tts_process is None)
+                
+                # Debug info to understand what's happening
+                if not should_speak:
+                    if message == last_spoken_message:
+                        print(f">>> Skipping: Same message as before")
+                    elif time_since_last_speech <= config.SPEECH_COOLDOWN:
+                        print(f">>> Skipping: Cooldown active ({time_since_last_speech:.1f}s < {config.SPEECH_COOLDOWN}s)")
+                    elif tts_process is not None:
+                        print(f">>> Skipping: TTS already running")
+                
+                if should_speak:
+                    print(">>> Speaking new message...")
+                    last_spoken_message = message
+                    last_speech_time = current_time
+                    tts_process = Process(target=speak_text, args=(message,))
+                    tts_process.start()
+                
+                # NOTE: We no longer reset last_spoken_message when object_count == 0
+                # because "I can't see anything" is also a valid message to remember
             
-            time.sleep(config.CLIENT_LOOP_DELAY)
+            # This small delay prevents the CPU from running at 100% constantly.
+            time.sleep(0.1)
+                
+    except KeyboardInterrupt:
+        print("\nShutdown requested...")
+    finally:
+        if tts_process and tts_process.is_alive(): tts_process.terminate(); tts_process.join()
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Client stopped.")
 
-        except KeyboardInterrupt:
-            print("\nShutdown signal received. Exiting...")
-            if tts_process and tts_process.is_alive():
-                tts_process.terminate()  # Terminate speech if exiting
-                tts_process.join(timeout=1)  # Wait up to 1 second for clean exit
-            break
-        except Exception as e:
-            print(f"FATAL: An unexpected error occurred in the main loop: {e}")
-            break
-            
-    print("Releasing resources...")
-    cap.release()
-
-# CRITICAL: This block is required for Windows multiprocessing
 if __name__ == '__main__':
-    # Freeze support for Windows executable creation
-    from multiprocessing import freeze_support
     freeze_support()
     main()
